@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A random agent for starcraft."""
+"""An agent for starcraft build marines minigame."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -86,6 +86,13 @@ smart_actions = [
     ACTION_BUILD_MARINE
 ]
 
+# Magic numbers
+
+SUPPLY_DEPOT_MIN_X = 40
+BARRACKS_MIN_X = 24
+SUPPLY_DEPOT_Y = 6
+SUPPLY_DEPOT_SIZE = 8
+
 
 
 class MoveAgent(base_agent.BaseAgent):
@@ -100,7 +107,8 @@ class MoveAgent(base_agent.BaseAgent):
         # Tracks previous state
         self.previous_action = None
         self.previous_state = [0, 0, 0, 15]
-        print("HELLO")
+        self.supply_depot_count = 0
+        self.barracks_count = 0
 
     '''Hard coded values to reset to after each game
     ends so everything is reset'''
@@ -112,6 +120,7 @@ class MoveAgent(base_agent.BaseAgent):
         # Tracks previous state
         self.previous_action = None
         self.previous_state = [0, 0, 0, 15]
+        self.supply_depot_count = 0
 
     def step(self, obs):
         super(MoveAgent, self).step(obs)
@@ -121,13 +130,16 @@ class MoveAgent(base_agent.BaseAgent):
 
         unit_type = obs.observation["feature_screen"][_UNIT_TYPE]
 
+
         depot_y, depot_x = (unit_type == _TERRAN_SUPPLY_DEPOT).nonzero()
+
+
         # Possibly change this to actually count depots
-        supply_depot_count = 1 if depot_y.any() else 0
+        supply_depot_bool = 1 if depot_y.any() else 0
 
         barracks_y, barracks_x = (unit_type == _TERRAN_BARRACKS).nonzero()
         # Same as depot
-        barracks_count = 1 if barracks_y.any() else 0
+        barracks_bool = 1 if barracks_y.any() else 0
 
         SCV_y, SCV_x = (unit_type == _TERRAN_SCV).nonzero()
         SCV_count = len(SCV_y)
@@ -139,11 +151,10 @@ class MoveAgent(base_agent.BaseAgent):
         # is supply limit necessary?
         current_state = [
             SCV_count,
-            supply_depot_count,
-            barracks_count,
+            supply_depot_bool,
+            barracks_bool,
             supply_limit
         ]
-
 
         # Update using the last action
         if self.previous_action is not None:
@@ -194,13 +205,41 @@ class MoveAgent(base_agent.BaseAgent):
 
         elif self.choice == ACTION_BUILD_SUPPLY_DEPOT:
             if _BUILD_SUPPLY_DEPOT in obs.observation["available_actions"]:
-                target = [random.randint(0, 83), random.randint(0, 83)]
+                target = [(self.supply_depot_count * 7) % (80 - SUPPLY_DEPOT_MIN_X) + SUPPLY_DEPOT_MIN_X, ((self.supply_depot_count * 7) // (80 - SUPPLY_DEPOT_MIN_X) ) * 7 + SUPPLY_DEPOT_Y]
+                # this code was a cleaner idea but didnt quite work
+                '''target = [0, SUPPLY_DEPOT_Y]
+                if len(depot_x) > 0:
+                    if max(depot_x) < 80:
+                        target = [max(depot_x) + 1, SUPPLY_DEPOT_Y]
+
+                    # NEED TO UPDATE
+                    #elif max(depot_x) > 80 :
+                    if target[0] > 80:
+                        target = [SUPPLY_DEPOT_MIN_X, SUPPLY_DEPOT_Y]
+                        while target in taken :
+                            if target[0] < 80:
+                                target = [target[0] + SUPPLY_DEPOT_SIZE, target[1]]
+                            else:
+                                target = [SUPPLY_DEPOT_MIN_X, target[1] + SUPPLY_DEPOT_SIZE]'''
+
+
+                if self.supply_depot_count >= 30:
+                    return actions.FunctionCall(_NO_OP, [])
+
+                self.supply_depot_count += 1
+
                 return actions.FunctionCall(_BUILD_SUPPLY_DEPOT, [_NOT_QUEUED, target])
 
 
         elif self.choice == ACTION_BUILD_BARRACKS:
             if _BUILD_BARRACKS in obs.observation["available_actions"]:
-                target = [random.randint(0, 83), random.randint(0, 83)]
+
+                target = [(self.barracks_count * 11) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, 60 - ((self.barracks_count * 11) // (80 - BARRACKS_MIN_X) ) * 11 ]
+
+                if self.barracks_count >= 12:
+                    return actions.FunctionCall(_NO_OP, [])
+
+                self.barracks_count += 1
                 return actions.FunctionCall(_BUILD_BARRACKS, [_NOT_QUEUED, target])
 
 
