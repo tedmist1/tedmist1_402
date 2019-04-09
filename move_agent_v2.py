@@ -90,6 +90,7 @@ smart_actions = [
 
 SUPPLY_DEPOT_MIN_X = 40
 BARRACKS_MIN_X = 24
+BARRACKS_MAX_Y = 58
 SUPPLY_DEPOT_Y = 6
 SUPPLY_DEPOT_SIZE = 8
 
@@ -121,6 +122,7 @@ class MoveAgent(base_agent.BaseAgent):
         self.previous_action = None
         self.previous_state = [0, 0, 0, 15]
         self.supply_depot_count = 0
+        self.barracks_count = 0
 
     def step(self, obs):
         super(MoveAgent, self).step(obs)
@@ -234,9 +236,9 @@ class MoveAgent(base_agent.BaseAgent):
         elif self.choice == ACTION_BUILD_BARRACKS:
             if _BUILD_BARRACKS in obs.observation["available_actions"]:
 
-                target = [(self.barracks_count * 11) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, 60 - ((self.barracks_count * 11) // (80 - BARRACKS_MIN_X) ) * 11 ]
+                target = [(self.barracks_count * 11) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, BARRACKS_MAX_Y - ((self.barracks_count * 11) // (80 - BARRACKS_MIN_X) ) * 11 ]
 
-                if self.barracks_count >= 12:
+                if self.barracks_count >= 11:
                     return actions.FunctionCall(_NO_OP, [])
 
                 self.barracks_count += 1
