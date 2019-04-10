@@ -21,6 +21,7 @@ import random
 import math
 import datetime
 import csv
+import os.path
 
 import numpy as np
 import pandas as pd
@@ -31,6 +32,9 @@ from pysc2.env import sc2_env
 from pysc2.lib import actions, features, units
 from absl import app
 
+
+
+DATA_FILE = 'agent_data'
 # Functions
 _NO_OP = actions.FUNCTIONS.no_op.id
 _SELECT_POINT = actions.FUNCTIONS.select_point.id
@@ -111,9 +115,13 @@ class MoveAgent(base_agent.BaseAgent):
         self.supply_depot_count = 0
         self.barracks_count = 0
 
+        if os.path.isfile(DATA_FILE + '.gz'):
+            self.qlearn.q_table = pd.read_pickle(DATA_FILE + '.gz', compression='gzip')
+
     '''Hard coded values to reset to after each game
     ends so everything is reset'''
     def self_reset(self):
+        self.qlearn.q_table.to_pickle(DATA_FILE + '.gz', 'gzip')
         self.choice = ''
         # Used for scoring
         self.previous_army_supply = 0
@@ -144,7 +152,8 @@ class MoveAgent(base_agent.BaseAgent):
         barracks_bool = 1 if barracks_y.any() else 0
 
         SCV_y, SCV_x = (unit_type == _TERRAN_SCV).nonzero()
-        SCV_count = len(SCV_y)
+
+        SCV_count = obs.observation['player'][6]
 
         supply_limit = obs.observation['player'][4]
 
