@@ -11,6 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+
+
+'''
+NEW RESOURCES
+https://github.com/deepmind/pysc2/blob/master/docs/environment.md
+https://pastebin.com/KCwwLiQ1
+'''
 """An agent for starcraft build marines minigame."""
 
 from __future__ import absolute_import
@@ -34,7 +43,7 @@ from absl import app
 
 
 
-DATA_FILE = 'smart_agent_data'
+DATA_FILE = 'agent_data'
 # Functions
 _NO_OP = actions.FUNCTIONS.no_op.id
 _SELECT_POINT = actions.FUNCTIONS.select_point.id
@@ -59,6 +68,7 @@ _TERRAN_COMMANDCENTER = 18
 _TERRAN_SCV = 45
 _TERRAN_SUPPLY_DEPOT = 19
 _TERRAN_BARRACKS = 21
+_TERRAN_MARINE = 48
 
 _NOT_QUEUED = [0]
 _QUEUED = [1]
@@ -95,8 +105,9 @@ smart_actions = [
 SUPPLY_DEPOT_MIN_X = 40
 BARRACKS_MIN_X = 24
 BARRACKS_MAX_Y = 58
-SUPPLY_DEPOT_Y = 6
-SUPPLY_DEPOT_SIZE = 8
+SUPPLY_DEPOT_Y = 5
+SUPPLY_DEPOT_SIZE = 7
+BARRACKS_SIZE = 11
 
 
 
@@ -187,6 +198,28 @@ class MoveAgent(base_agent.BaseAgent):
         self.previous_action = rl_action
 
 
+        # print(_TERRAN_MARINE in obs.observation["build_queue"])
+        # print(obs.observation['player'][5])
+
+        # print(obs.observation['last_actions'])
+
+        if _BUILD_BARRACKS in obs.observation['last_actions']:
+            self.barracks_count += 1
+            # print("BUILT BARRACKS SUCCESSFULLY")
+            self.choice = ACTION_SELECT_SCV
+
+        if _BUILD_SUPPLY_DEPOT in obs.observation['last_actions']:
+            self.supply_depot_count += 1
+            # print("BUILT SUPPLY DEEPOT SUCCESSFULLY")
+            self.choice  = ACTION_SELECT_SCV
+
+
+        if _TRAIN_MARINE in obs.observation['last_actions']:
+            print(obs.observation['last_actions'])
+
+
+
+
         # HARD CODED WAY TO HANDLE EVERY ACTION IN THE ACTION SPACE
         if self.choice == ACTION_DO_NOTHING:
             return actions.FunctionCall(_NO_OP,[])
@@ -217,7 +250,8 @@ class MoveAgent(base_agent.BaseAgent):
 
         elif self.choice == ACTION_BUILD_SUPPLY_DEPOT:
             if _BUILD_SUPPLY_DEPOT in obs.observation["available_actions"]:
-                target = [(self.supply_depot_count * 7) % (80 - SUPPLY_DEPOT_MIN_X) + SUPPLY_DEPOT_MIN_X, ((self.supply_depot_count * 7) // (80 - SUPPLY_DEPOT_MIN_X) ) * 7 + SUPPLY_DEPOT_Y]
+                target = [(self.supply_depot_count * SUPPLY_DEPOT_SIZE) % (80 - SUPPLY_DEPOT_MIN_X) + SUPPLY_DEPOT_MIN_X,
+                          ((self.supply_depot_count * SUPPLY_DEPOT_SIZE) // (80 - SUPPLY_DEPOT_MIN_X) ) * 7 + SUPPLY_DEPOT_Y]
                 # this code was a cleaner idea but didnt quite work
                 '''target = [0, SUPPLY_DEPOT_Y]
                 if len(depot_x) > 0:
@@ -238,20 +272,18 @@ class MoveAgent(base_agent.BaseAgent):
                 if self.supply_depot_count >= 30:
                     return actions.FunctionCall(_NO_OP, [])
 
-                self.supply_depot_count += 1
-
                 return actions.FunctionCall(_BUILD_SUPPLY_DEPOT, [_NOT_QUEUED, target])
 
 
         elif self.choice == ACTION_BUILD_BARRACKS:
             if _BUILD_BARRACKS in obs.observation["available_actions"]:
 
-                target = [(self.barracks_count * 11) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, BARRACKS_MAX_Y - ((self.barracks_count * 11) // (80 - BARRACKS_MIN_X) ) * 11 ]
+                target = [(self.barracks_count * BARRACKS_SIZE) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, BARRACKS_MAX_Y - ((self.barracks_count * BARRACKS_SIZE) // (80 - BARRACKS_MIN_X) ) * BARRACKS_SIZE ]
 
                 if self.barracks_count >= 11:
                     return actions.FunctionCall(_NO_OP, [])
 
-                self.barracks_count += 1
+                # self.barracks_count += 1
                 return actions.FunctionCall(_BUILD_BARRACKS, [_NOT_QUEUED, target])
 
 
@@ -350,6 +382,7 @@ def main(unused_argv):
                 with open('training.csv', 'a') as csvFile:
                     writer = csv.writer(csvFile)
                     writer.writerow(data)
+                # print(agent.previous_state)
                 agent.self_reset()
                 agent.reset()
 
