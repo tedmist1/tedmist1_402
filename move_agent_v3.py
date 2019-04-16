@@ -11,15 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-
-
-'''
-NEW RESOURCES
-https://github.com/deepmind/pysc2/blob/master/docs/environment.md
-https://pastebin.com/KCwwLiQ1
-'''
 """An agent for starcraft build marines minigame."""
 
 from __future__ import absolute_import
@@ -214,8 +205,8 @@ class MoveAgent(base_agent.BaseAgent):
             self.choice  = ACTION_SELECT_SCV
 
 
-        if _TRAIN_MARINE in obs.observation['last_actions']:
-            print(obs.observation['last_actions'])
+        # if _TRAIN_MARINE in obs.observation['last_actions']:
+            # print(obs.observation['last_actions'])
 
 
 
