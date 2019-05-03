@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import random
-import math
 import datetime
 import csv
 import os.path
@@ -41,18 +40,10 @@ _SELECT_POINT = actions.FUNCTIONS.select_point.id
 _BUILD_SUPPLY_DEPOT = actions.FUNCTIONS.Build_SupplyDepot_screen.id
 _BUILD_BARRACKS = actions.FUNCTIONS.Build_Barracks_screen.id
 _TRAIN_MARINE = actions.FUNCTIONS.Train_Marine_quick.id
-_SELECT_ARMY = actions.FUNCTIONS.select_army.id
-_ATTACK_MINIMAP = actions.FUNCTIONS.Attack_minimap.id
-
-
-_PLAYER_RELATIVE = features.SCREEN_FEATURES.player_relative.index
-_UNIT_TYPE = features.SCREEN_FEATURES.unit_type.index
-_PLAYER_ID = features.SCREEN_FEATURES.player_id.index
-
 _SELECT_IDLE = actions.FUNCTIONS.select_idle_worker.id
 _TRAIN_SCV = actions.FUNCTIONS.Train_SCV_quick.id
 
-_PLAYER_SELF = 1
+_UNIT_TYPE = features.SCREEN_FEATURES.unit_type.index
 
 # Unit IDs
 _TERRAN_COMMANDCENTER = 18
@@ -74,20 +65,14 @@ ACTION_BUILD_SUPPLY_DEPOT = 'buildsupplydepot'
 ACTION_BUILD_BARRACKS = 'buildbarracks'
 ACTION_SELECT_BARRACKS = 'selectbarracks'
 ACTION_BUILD_MARINE = 'buildmarine'
-#ACTION_SELECT_ARMY = 'selectarmy'
-#ACTION_ATTACK = 'attack'
-
 SELECTED_IDLE = 'selectidle'
 
 # List of possible actions to select at any time
 smart_actions = [
     ACTION_DO_NOTHING,
-    ACTION_SELECT_COMMANDCENTER,
-    ACTION_SELECT_SCV,
     ACTION_BUILD_SCV,
     ACTION_BUILD_SUPPLY_DEPOT,
     ACTION_BUILD_BARRACKS,
-    ACTION_SELECT_BARRACKS,
     ACTION_BUILD_MARINE
 ]
 
@@ -106,7 +91,10 @@ class MoveAgent(base_agent.BaseAgent):
     """An agent to play the train marine minigame."""
     def __init__(self):
         super(MoveAgent, self).__init__()
-        self.qlearn = QLearningTable(actions=list(range(len(smart_actions))))
+
+        # e_decay does not work outside of a single sitting, since it is only stored locally
+        self.qlearn = QLearningTable(actions=list(range(len(smart_actions))),
+            learning_rate=0.05, e_decay = 0.9995)
         self.choice = ''
         # Used for scoring
         self.previous_army_supply = 0
@@ -116,6 +104,9 @@ class MoveAgent(base_agent.BaseAgent):
         self.previous_state = [0, 0, 0, 15]
         self.supply_depot_count = 0
         self.barracks_count = 0
+        # Used because you can only act every other step, those other steps are
+        # predetermined by what you did in the previous step
+        self.step_num = 0
 
         if os.path.isfile(DATA_FILE + '.gz'):
             self.qlearn.q_table = pd.read_pickle(DATA_FILE + '.gz', compression='gzip')
@@ -133,199 +124,158 @@ class MoveAgent(base_agent.BaseAgent):
         self.previous_state = [0, 0, 0, 15]
         self.supply_depot_count = 0
         self.barracks_count = 0
+        self.step_num = 0
+
 
     def step(self, obs):
         super(MoveAgent, self).step(obs)
-
+        self.step_num += 1
+        if obs.first():
+            self.self_reset()
 
         # Setting up all of the information for the current state
 
         unit_type = obs.observation["feature_screen"][_UNIT_TYPE]
-
-
-        depot_y, depot_x = (unit_type == _TERRAN_SUPPLY_DEPOT).nonzero()
-
-
-        # Possibly change this to actually count depots
-        supply_depot_bool = 1 if depot_y.any() else 0
-
-        barracks_y, barracks_x = (unit_type == _TERRAN_BARRACKS).nonzero()
-        # Same as depot
-        barracks_bool = 1 if barracks_y.any() else 0
-
         SCV_y, SCV_x = (unit_type == _TERRAN_SCV).nonzero()
-
         SCV_count = obs.observation['player'][6]
-
         supply_limit = obs.observation['player'][4]
-
-        # Consider adding in (queued actions?)
-        # Something about barracks currently building
-        # is supply limit necessary?
+        supply_count = obs.observation['player'][3]
 
         #Add steps remaining? Def would make it too complicated...
         current_state = [
-            SCV_count,
-            supply_depot_bool,
+            supply_count,
+            supply_limit,
             self.barracks_count
         ]
 
-        # Update using the last action
-        if self.previous_action is not None:
-            reward = 0
-            army_supply = obs.observation['player'][5]
-            if army_supply > self.previous_army_supply:
-                reward = army_supply - self.previous_army_supply
-                self.previous_army_supply = army_supply
+        # First step of each action. Learning is done here, and then first
+        # of the two steps occurs
+        if self.step_num % 2 == 0:
 
-            self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
+            # Deals with learning, rewards, and q learning
+            if self.previous_action is not None:
+                reward = 0
+                army_supply = obs.observation['player'][5]
+                if army_supply > self.previous_army_supply:
+                    reward = army_supply - self.previous_army_supply
+                    self.previous_army_supply = army_supply
 
-
-        # Setting the previous action and state to the current
-        rl_action = self.qlearn.choose_action(str(current_state))
-
-        self.choice = smart_actions[rl_action]
-        self.previous_state = current_state
-        self.previous_action = rl_action
+                self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
 
 
-        # print(_TERRAN_MARINE in obs.observation["build_queue"])
-        # print(obs.observation['player'][5])
+            # Setting the previous action and state to the current
+            rl_action = self.qlearn.choose_action(str(current_state))
 
-        # print(obs.observation['last_actions'])
+            self.choice = smart_actions[rl_action]
+            self.previous_state = current_state
+            self.previous_action = rl_action
 
-        if _BUILD_BARRACKS in obs.observation['last_actions']:
-            self.barracks_count += 1
-            # print("BUILT BARRACKS SUCCESSFULLY")
-            self.choice = ACTION_SELECT_SCV
+            ''' Updates barrack and supply depot count, and tell the agent
+                to select an scv as its first action'''
+            if _BUILD_BARRACKS in obs.observation['last_actions']:
+                self.barracks_count += 1
+                self.choice = ACTION_SELECT_SCV
 
-        if _BUILD_SUPPLY_DEPOT in obs.observation['last_actions']:
-            self.supply_depot_count += 1
-            # print("BUILT SUPPLY DEEPOT SUCCESSFULLY")
-            self.choice  = ACTION_SELECT_SCV
-
-
-        # if _TRAIN_MARINE in obs.observation['last_actions']:
-            # print(obs.observation['last_actions'])
+            if _BUILD_SUPPLY_DEPOT in obs.observation['last_actions']:
+                self.supply_depot_count += 1
+                self.choice  = ACTION_SELECT_SCV
 
 
+            if self.choice == ACTION_DO_NOTHING:
+                return actions.FunctionCall(_NO_OP,[])
+
+            # First action is to select command center
+            elif self.choice == ACTION_BUILD_SCV:
+                unit_y, unit_x = (unit_type == _TERRAN_COMMANDCENTER).nonzero()
+                if unit_x.any():
+                    CC = random.randint(0, len(unit_x) - 1) # selects a random CC if needed
+                    target = [unit_x[CC], unit_y[CC]]
+                    return actions.FunctionCall(_SELECT_POINT, [_NOT_QUEUED, target])
+
+            # Both build supplydepot and buildbarracks start with selecting an scv
+            elif self.choice == ACTION_BUILD_SUPPLY_DEPOT or self.choice == ACTION_BUILD_BARRACKS:
+                # Optimizes SCV usage manually, to select idle workers first
+                # Can also backfire and cause stuck, idle scvs to be called though
+                if _SELECT_IDLE in obs.observation["available_actions"]:
+                    return actions.FunctionCall(_SELECT_IDLE, [_NOT_QUEUED])
+
+                unit_y, unit_x = (unit_type == _TERRAN_SCV).nonzero()
+                if unit_x.any():
+                    scv = random.randint(0, len(unit_x) - 1)
+                    target = [unit_x[scv], unit_y[scv]]
+
+                    return actions.FunctionCall(_SELECT_POINT, [_NOT_QUEUED, target])
+
+            # Build marine starts with selecting all barrack
+            elif self.choice == ACTION_BUILD_MARINE:
+                unit_y, unit_x = (unit_type == _TERRAN_BARRACKS).nonzero()
+                if unit_y.any():
+                    barracks = random.randint(0, len(unit_x) - 1)
+                    target = [unit_x[barracks], unit_y[barracks]]
+                    return actions.FunctionCall(_SELECT_POINT, [_SELECT_ALL, target])
 
 
-        # HARD CODED WAY TO HANDLE EVERY ACTION IN THE ACTION SPACE
-        if self.choice == ACTION_DO_NOTHING:
-            return actions.FunctionCall(_NO_OP,[])
 
-        elif self.choice == ACTION_SELECT_COMMANDCENTER:
-            unit_y, unit_x = (unit_type == _TERRAN_COMMANDCENTER).nonzero()
-            if unit_x.any():
-                CC = random.randint(0, len(unit_x) - 1) # selects a random CC if needed
-                target = [unit_x[CC], unit_y[CC]]
-                return actions.FunctionCall(_SELECT_POINT, [_NOT_QUEUED, target])
-
-        elif self.choice == ACTION_BUILD_SCV:
-            if _TRAIN_SCV in obs.observation["available_actions"]:
-                # Not sure if a target is needed for build scv
-                return actions.FunctionCall(_TRAIN_SCV, [_NOT_QUEUED])
-
-        elif self.choice == ACTION_SELECT_SCV:
-            # Optimizes SCV usage manually, to select idle workers first
-            if _SELECT_IDLE in obs.observation["available_actions"]:
-                return actions.FunctionCall(_SELECT_IDLE, [_NOT_QUEUED])
-
-            unit_y, unit_x = (unit_type == _TERRAN_SCV).nonzero()
-            if unit_x.any():
-                scv = random.randint(0, len(unit_x) - 1)
-                target = [unit_x[scv], unit_y[scv]]
-
-                return actions.FunctionCall(_SELECT_POINT, [_NOT_QUEUED, target])
-
-        elif self.choice == ACTION_BUILD_SUPPLY_DEPOT:
-            if _BUILD_SUPPLY_DEPOT in obs.observation["available_actions"]:
-                target = [(self.supply_depot_count * SUPPLY_DEPOT_SIZE) % (80 - SUPPLY_DEPOT_MIN_X) + SUPPLY_DEPOT_MIN_X,
-                          ((self.supply_depot_count * SUPPLY_DEPOT_SIZE) // (80 - SUPPLY_DEPOT_MIN_X) ) * 7 + SUPPLY_DEPOT_Y]
-                # this code was a cleaner idea but didnt quite work
-                '''target = [0, SUPPLY_DEPOT_Y]
-                if len(depot_x) > 0:
-                    if max(depot_x) < 80:
-                        target = [max(depot_x) + 1, SUPPLY_DEPOT_Y]
-
-                    # NEED TO UPDATE
-                    #elif max(depot_x) > 80 :
-                    if target[0] > 80:
-                        target = [SUPPLY_DEPOT_MIN_X, SUPPLY_DEPOT_Y]
-                        while target in taken :
-                            if target[0] < 80:
-                                target = [target[0] + SUPPLY_DEPOT_SIZE, target[1]]
-                            else:
-                                target = [SUPPLY_DEPOT_MIN_X, target[1] + SUPPLY_DEPOT_SIZE]'''
+        else:
+            if self.choice == ACTION_DO_NOTHING:
+                return actions.FunctionCall(_NO_OP,[])
 
 
-                if self.supply_depot_count >= 30:
-                    return actions.FunctionCall(_NO_OP, [])
+            elif self.choice == ACTION_BUILD_SCV:
+                if _TRAIN_SCV in obs.observation["available_actions"]:
+                    return actions.FunctionCall(_TRAIN_SCV, [_NOT_QUEUED])
 
-                return actions.FunctionCall(_BUILD_SUPPLY_DEPOT, [_NOT_QUEUED, target])
+            elif self.choice == ACTION_BUILD_SUPPLY_DEPOT:
+                if _BUILD_SUPPLY_DEPOT in obs.observation["available_actions"]:
+                    target = [(self.supply_depot_count * SUPPLY_DEPOT_SIZE) % (80 - SUPPLY_DEPOT_MIN_X) + SUPPLY_DEPOT_MIN_X,
+                              ((self.supply_depot_count * SUPPLY_DEPOT_SIZE) // (80 - SUPPLY_DEPOT_MIN_X) ) * 7 + SUPPLY_DEPOT_Y]
 
+                    # Hard coded limit of supply depots, otherwise it eventually tries
+                    # to build outside the map, crashing the program
+                    if self.supply_depot_count >= 30:
+                        return actions.FunctionCall(_NO_OP, [])
 
-        elif self.choice == ACTION_BUILD_BARRACKS:
-            if _BUILD_BARRACKS in obs.observation["available_actions"]:
-
-                target = [(self.barracks_count * BARRACKS_SIZE) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, BARRACKS_MAX_Y - ((self.barracks_count * BARRACKS_SIZE) // (80 - BARRACKS_MIN_X) ) * BARRACKS_SIZE ]
-
-                if self.barracks_count >= 11:
-                    return actions.FunctionCall(_NO_OP, [])
-
-                # self.barracks_count += 1
-                return actions.FunctionCall(_BUILD_BARRACKS, [_NOT_QUEUED, target])
-
-
-        elif self.choice == ACTION_SELECT_BARRACKS: # Need to update to select(all) barracks?
-            unit_y, unit_x = (unit_type == _TERRAN_BARRACKS).nonzero()
-            if unit_y.any():
-                barracks = random.randint(0, len(unit_x) - 1)
-                target = [unit_x[barracks], unit_y[barracks]]
-                return actions.FunctionCall(_SELECT_POINT, [_SELECT_ALL, target])
+                    return actions.FunctionCall(_BUILD_SUPPLY_DEPOT, [_NOT_QUEUED, target])
 
 
-        elif self.choice == ACTION_BUILD_MARINE:
-            if _TRAIN_MARINE in obs.observation["available_actions"]:
-                return actions.FunctionCall(_TRAIN_MARINE, [_QUEUED])
+            elif self.choice == ACTION_BUILD_BARRACKS:
+                if _BUILD_BARRACKS in obs.observation["available_actions"]:
+
+                    target = [(self.barracks_count * BARRACKS_SIZE) % (80 - BARRACKS_MIN_X) + BARRACKS_MIN_X, BARRACKS_MAX_Y - ((self.barracks_count * BARRACKS_SIZE) // (80 - BARRACKS_MIN_X) ) * BARRACKS_SIZE ]
+
+                    # Hard coded limit of barracks, same reason as depots
+                    if self.barracks_count >= 11:
+                        return actions.FunctionCall(_NO_OP, [])
+
+                    return actions.FunctionCall(_BUILD_BARRACKS, [_NOT_QUEUED, target])
+
+            elif self.choice == ACTION_BUILD_MARINE:
+                if _TRAIN_MARINE in obs.observation["available_actions"]:
+                    return actions.FunctionCall(_TRAIN_MARINE, [_QUEUED])
 
 
         return actions.FunctionCall(_NO_OP, [])
-
-    #Copy pasted code from guide, not sure exactly whats up
-    def unit_type_is_selected(self, obs, unit_type):
-        if (len(obs.observation.single_select) > 0 and
-                obs.observation.single_select[0].unit_type == unit_type):
-            return True
-
-        if (len(obs.observation.multi_select) > 0 and
-                obs.observation.multi_select[0].unit_type == unit_type):
-            return True
-
-        return False
 
 
 
 # Directly from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow
 class QLearningTable:
-    def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
+    def __init__(self, actions, learning_rate=0.1, reward_decay=0.9, e_greedy=0.9, e_decay = 1):
         self.actions = actions
         self.lr = learning_rate
         self.gamma = reward_decay
         self.epsilon = e_greedy
+        self.epsilon_decay = e_decay
         self.q_table = pd.DataFrame(columns=self.actions, dtype=np.float64)
 
     def choose_action(self, observation):
         self.check_state_exist(observation)
-
+        self.epsilon *= self.epsilon_decay
+        # At random chance, explore instead of exploit
         if np.random.uniform() < self.epsilon:
-            # choose best action
+            # Get resulting Q values from State information
             state_action = self.q_table.ix[observation, :]
-
-            # some actions have the same value
-            state_action = state_action.reindex(np.random.permutation(state_action.index))
-
+            # Gets max of the actions in the given state
             action = state_action.idxmax()
         else:
             # choose random action
@@ -337,10 +287,12 @@ class QLearningTable:
         self.check_state_exist(s_)
         self.check_state_exist(s)
 
+        # Current Q value for state action pair
         q_predict = self.q_table.ix[s, a]
+        # Reward for performing action in the state, plus predicted reward for next state
         q_target = r + self.gamma * self.q_table.ix[s_, :].max()
 
-        # update
+        # Update Q value with the difference times the learning rate
         self.q_table.ix[s, a] += self.lr * (q_target - q_predict)
 
     def check_state_exist(self, state):
@@ -348,6 +300,7 @@ class QLearningTable:
             # append new state to q table
             self.q_table = self.q_table.append(pd.Series([0] * len(self.actions), index=self.q_table.columns, name=state))
 
+# Method to run without main method, but fails after a few iterations
 ''' python -m pysc2.bin.agent --map BuildMarines --agent move_agent.MoveAgent  '''
 
 def main(unused_argv):
@@ -373,8 +326,6 @@ def main(unused_argv):
                 with open('training.csv', 'a') as csvFile:
                     writer = csv.writer(csvFile)
                     writer.writerow(data)
-                # print(agent.previous_state)
-                agent.self_reset()
                 agent.reset()
 
                 while True:
