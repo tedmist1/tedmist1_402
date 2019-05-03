@@ -85,12 +85,12 @@ SUPPLY_DEPOT_Y = 5
 SUPPLY_DEPOT_SIZE = 7
 BARRACKS_SIZE = 11
 
+'''Previously known as the third iteration of MoveAgent'''
 
-
-class MoveAgent(base_agent.BaseAgent):
+class BuildMarinesAgent(base_agent.BaseAgent):
     """An agent to play the train marine minigame."""
     def __init__(self):
-        super(MoveAgent, self).__init__()
+        super(BuildMarinesAgent, self).__init__()
 
         # e_decay does not work outside of a single sitting, since it is only stored locally
         self.qlearn = QLearningTable(actions=list(range(len(smart_actions))),
@@ -128,7 +128,7 @@ class MoveAgent(base_agent.BaseAgent):
 
 
     def step(self, obs):
-        super(MoveAgent, self).step(obs)
+        super(BuildMarinesAgent, self).step(obs)
         self.step_num += 1
         if obs.first():
             self.self_reset()
@@ -258,7 +258,7 @@ class MoveAgent(base_agent.BaseAgent):
 
 
 
-# Directly from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow
+# Directly from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow with minimum modifications
 class QLearningTable:
     def __init__(self, actions, learning_rate=0.1, reward_decay=0.9, e_greedy=0.9, e_decay = 1):
         self.actions = actions
@@ -301,10 +301,10 @@ class QLearningTable:
             self.q_table = self.q_table.append(pd.Series([0] * len(self.actions), index=self.q_table.columns, name=state))
 
 # Method to run without main method, but fails after a few iterations
-''' python -m pysc2.bin.agent --map BuildMarines --agent move_agent.MoveAgent  '''
+''' python -m pysc2.bin.agent --map BuildMarines --agent move_agent.BuildMarinesAgent  '''
 
 def main(unused_argv):
-    agent = MoveAgent()
+    agent = BuildMarinesAgent()
     try:
         while True:
             with sc2_env.SC2Env(

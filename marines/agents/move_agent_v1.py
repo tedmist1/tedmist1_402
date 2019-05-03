@@ -11,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A random agent for starcraft."""
+"""A random agent for starcraft.EDIT: Build marines minigame. Just poorly named"""
+
 
 from __future__ import absolute_import
 from __future__ import division
@@ -19,6 +20,8 @@ from __future__ import print_function
 
 import random
 import math
+import csv
+import datetime
 
 import numpy as np
 import pandas as pd
@@ -95,7 +98,16 @@ class MoveAgent(base_agent.BaseAgent):
 
         # Tracks previous state
         self.previous_action = None
-        self.previous_state = None
+        self.previous_state = [0, 0, 0, 15]
+
+    def self_reset(self):
+        self.choice = ''
+        # Used for scoring
+        self.previous_army_supply = 0
+
+        # Tracks previous state
+        self.previous_action = None
+        self.previous_state = [0, 0, 0, 15]
 
     def step(self, obs):
         super(MoveAgent, self).step(obs)
@@ -113,8 +125,9 @@ class MoveAgent(base_agent.BaseAgent):
         # Same as depot
         barracks_count = 1 if barracks_y.any() else 0
 
-        SCV_y, SCV_x = (unit_type == _TERRAN_SCV).nonzero()
-        SCV_count = len(SCV_y)
+        # SCV_y, SCV_x = (unit_type == _TERRAN_SCV).nonzero()
+        # SCV_count = len(SCV_y)
+        SCV_count = obs.observation['player'][6]
 
         supply_limit = obs.observation['player'][4]
 
@@ -277,8 +290,12 @@ def main(unused_argv):
 
                 ''' Prints the state at the end of the game, will be useful
                 for tracking how much the training helps'''
+                data = [agent.previous_army_supply, *(agent.previous_state), str(datetime.datetime.now())]
+                with open('training.csv', 'a') as csvFile:
+                    writer = csv.writer(csvFile)
+                    writer.writerow(data)
                 print(agent.previous_state)
-
+                agent.self_reset()
                 agent.reset()
 
                 while True:

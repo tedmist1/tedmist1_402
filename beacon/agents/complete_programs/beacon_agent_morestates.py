@@ -35,33 +35,19 @@ from statistics import mean
 
 
 
-DATA_FILE = 'beacon_agent_data'
+DATA_FILE = 'beacon_agent_morestates_data'
 # Functions
 _NO_OP = actions.FUNCTIONS.no_op.id
-_SELECT_POINT = actions.FUNCTIONS.select_point.id
-_BUILD_SUPPLY_DEPOT = actions.FUNCTIONS.Build_SupplyDepot_screen.id
-_BUILD_BARRACKS = actions.FUNCTIONS.Build_Barracks_screen.id
-_TRAIN_MARINE = actions.FUNCTIONS.Train_Marine_quick.id
 _SELECT_ARMY = actions.FUNCTIONS.select_army.id
-_ATTACK_MINIMAP = actions.FUNCTIONS.Attack_minimap.id
 
 _MOVE_MARINE = actions.FUNCTIONS.Move_screen.id
 _PLAYER_NEUTRAL = features.PlayerRelative.NEUTRAL
 
-_PLAYER_RELATIVE = features.SCREEN_FEATURES.player_relative.index
 _UNIT_TYPE = features.SCREEN_FEATURES.unit_type.index
-_PLAYER_ID = features.SCREEN_FEATURES.player_id.index
-
-_SELECT_IDLE = actions.FUNCTIONS.select_idle_worker.id
-_TRAIN_SCV = actions.FUNCTIONS.Train_SCV_quick.id
 
 _PLAYER_SELF = 1
 
 # Unit IDs
-_TERRAN_COMMANDCENTER = 18
-_TERRAN_SCV = 45
-_TERRAN_SUPPLY_DEPOT = 19
-_TERRAN_BARRACKS = 21
 _TERRAN_MARINE = 48
 
 _NOT_QUEUED = [0]
@@ -79,7 +65,6 @@ ACTION_DL = ['movedl', [-1, 1]]
 ACTION_D = ['moved', [0, 1]]
 ACTION_DR = ['movedr', [1, 1]]
 
-SELECTED_IDLE = 'selectidle'
 
 # List of possible actions to select at any time
 smart_actions = [
@@ -94,14 +79,6 @@ smart_actions = [
     ACTION_DO_NOTHING # 8
 ]
 
-# Magic numbers
-
-SUPPLY_DEPOT_MIN_X = 40
-BARRACKS_MIN_X = 24
-BARRACKS_MAX_Y = 58
-SUPPLY_DEPOT_Y = 5
-SUPPLY_DEPOT_SIZE = 7
-BARRACKS_SIZE = 11
 
 
 
@@ -115,7 +92,6 @@ class BeaconAgent(base_agent.BaseAgent):
         # Tracks previous state
         self.previous_action = None
         self.previous_state = [0, 0]
-        self.previous_state_for_scoring = [0, 0]
         self.previous_beacon = None
         self.beacon_count = 0
         self.cumulative_reward = 0
@@ -133,7 +109,6 @@ class BeaconAgent(base_agent.BaseAgent):
         # Tracks previous state
         self.previous_action = None
         self.previous_state = [0, 0]
-        self.previous_state_for_scoring = [0, 0]
         self.previous_beacon = None
         self.beacon_count = 0
         self.cumulative_reward = 0
@@ -175,26 +150,22 @@ class BeaconAgent(base_agent.BaseAgent):
             elif beacon_mean_y - marine_mean_y < 0:
                 current_state_y = 1
 
-            current_state = [current_state_x, current_state_y]
-
-            # Current state useful for scoring how good a state is
-            current_state_for_scoring = [beacon_mean_x - marine_mean_x, beacon_mean_y - marine_mean_y]
-
+            current_state = [beacon_mean_x - marine_mean_x, beacon_mean_y - marine_mean_y]
 
             if self.previous_action is not None:
                 reward = -2
-                current_score = self.score_state(current_state_for_scoring)
-                previous_score = self.score_state(self.previous_state_for_scoring)
+                current_score = self.score_state(current_state)
+                previous_score = self.score_state(self.previous_state)
 
                 if self.previous_beacon is not None:
                     if self.score_state([self.previous_beacon[0] - beacon_mean_x,
                                         self.previous_beacon[1] - beacon_mean_y]) > 1:
-                        reward += 1000
+                        reward += 100
                         self.beacon_count += 1
 
                 self.previous_beacon = [beacon_mean_x, beacon_mean_y]
                 reward +=  previous_score - current_score
-                # No gamma here, just summing them
+                # Store cumulative reward for data purposes
                 self.cumulative_reward += reward
                 self.qlearn.learn(str(self.previous_state), self.previous_action, reward, str(current_state))
 
@@ -203,7 +174,6 @@ class BeaconAgent(base_agent.BaseAgent):
 
             self.choice = smart_actions[rl_action]
             self.previous_state = current_state
-            self.previous_state_for_scoring = current_state_for_scoring
             self.previous_action = rl_action
 
             target = []
@@ -219,35 +189,27 @@ class BeaconAgent(base_agent.BaseAgent):
         return actions.FunctionCall(_SELECT_ARMY, [_NOT_QUEUED])
 
 
-    #Copy pasted code from guide, not sure exactly whats up
-    def unit_type_is_selected(self, obs, unit_type):
-        if (len(obs.observation.single_select) > 0 and
-                obs.observation.single_select[0].unit_type == unit_type):
-            return True
-
-        if (len(obs.observation.multi_select) > 0 and
-                obs.observation.multi_select[0].unit_type == unit_type):
-            return True
-
-        return False
-
 
 
 # Directly from https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow
 class QLearningTable:
-    def __init__(self, actions, learning_rate=0.01, reward_decay=0.9, e_greedy=0.9):
+    def __init__(self, actions, learning_rate=0.1, reward_decay=0.9, e_greedy=0.9, e_decay = 1):
         self.actions = actions
         self.lr = learning_rate
         self.gamma = reward_decay
         self.epsilon = e_greedy
+        # In the future, will allow for epsilon-decay training as well
+        self.epsilon_decay = e_decay
         self.q_table = pd.DataFrame(columns=self.actions, dtype=np.float64)
 
     def choose_action(self, observation):
         self.check_state_exist(observation)
-
+        self.epsilon *= self.epsilon_decay
+        # At random chance, explore instead of exploit
         if np.random.uniform() < self.epsilon:
-            # choose best action
+            # Get resulting Q values from State information
             state_action = self.q_table.ix[observation, :]
+            # Gets max of the actions in the given state
             action = state_action.idxmax()
         else:
             # choose random action
@@ -259,19 +221,19 @@ class QLearningTable:
         self.check_state_exist(s_)
         self.check_state_exist(s)
 
+        # Current Q value for state action pair
         q_predict = self.q_table.ix[s, a]
+        # Reward for performing action in the state, plus predicted reward for next state
         q_target = r + self.gamma * self.q_table.ix[s_, :].max()
 
-        # update
+        # Update Q value with the difference times the learning rate
         self.q_table.ix[s, a] += self.lr * (q_target - q_predict)
-
 
     def check_state_exist(self, state):
         if state not in self.q_table.index:
             # append new state to q table
             self.q_table = self.q_table.append(pd.Series([0] * len(self.actions), index=self.q_table.columns, name=state))
 
-''' python -m pysc2.bin.agent --map BuildMarines --agent move_agent.BeaconAgent  '''
 
 def main(unused_argv):
     agent = BeaconAgent()
@@ -296,8 +258,6 @@ def main(unused_argv):
                 with open('training_beacon.csv', 'a') as csvFile:
                     writer = csv.writer(csvFile)
                     writer.writerow(data)
-                # print(agent.previous_state)
-                agent.self_reset()
                 agent.reset()
 
                 while True:
